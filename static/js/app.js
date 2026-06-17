@@ -2,6 +2,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // DOM Elements
     const refreshBtn = document.getElementById('refresh-btn');
     const refreshIcon = document.getElementById('refresh-icon');
+    const exportBtn = document.getElementById('export-btn');
     const searchInput = document.getElementById('search-input');
     const filterTabs = document.querySelectorAll('.filter-tab');
     const notesContainer = document.getElementById('notes-container');
@@ -65,19 +66,23 @@ document.addEventListener('DOMContentLoaded', () => {
         `;
     }
 
+    // Get current filtered notes
+    function getFilteredNotes() {
+        const query = searchInput.value.toLowerCase().trim();
+        return allNotes.filter(note => {
+            const matchesCategory = currentCategory === 'all' || note.category === currentCategory;
+            const matchesSearch = note.title.toLowerCase().includes(query) || note.plain_text.toLowerCase().includes(query);
+            return matchesCategory && matchesSearch;
+        });
+    }
+
     // Render filtered/searched list of notes
     function renderNotes() {
         // Clear previous cards
         const cards = notesContainer.querySelectorAll('.note-card, .empty-feed');
         cards.forEach(card => card.remove());
 
-        const query = searchInput.value.toLowerCase().trim();
-        
-        const filtered = allNotes.filter(note => {
-            const matchesCategory = currentCategory === 'all' || note.category === currentCategory;
-            const matchesSearch = note.title.toLowerCase().includes(query) || note.plain_text.toLowerCase().includes(query);
-            return matchesCategory && matchesSearch;
-        });
+        const filtered = getFilteredNotes();
 
         if (filtered.length === 0) {
             const emptyEl = document.createElement('div');
@@ -106,14 +111,20 @@ document.addEventListener('DOMContentLoaded', () => {
                     ${note.content}
                 </div>
                 <div class="note-card-footer">
-                    <span class="select-hint">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-                        Click to select & compose Tweet
-                    </span>
-                    <span class="selected-indicator">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width: 14px; height: 14px; color: var(--accent-color)"><polyline points="20 6 9 17 4 12"/></svg>
-                        Selected for Tweet
-                    </span>
+                    <div style="display: flex; align-items: center; gap: 0.5rem; flex-grow: 1;">
+                        <span class="select-hint">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                            Click to compose Tweet
+                        </span>
+                        <span class="selected-indicator">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width: 14px; height: 14px; color: var(--accent-color)"><polyline points="20 6 9 17 4 12"/></svg>
+                            Selected for Tweet
+                        </span>
+                    </div>
+                    <button class="btn btn-secondary copy-card-btn" style="padding: 0.35rem 0.7rem; font-size: 0.75rem; flex-shrink: 0;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 12px; height: 12px;"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                        <span>Copy</span>
+                    </button>
                 </div>
             `;
 
@@ -123,6 +134,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Update selected styles visually
                 notesContainer.querySelectorAll('.note-card').forEach(c => c.classList.remove('selected'));
                 card.classList.add('selected');
+            });
+
+            // Copy to Clipboard listener
+            const copyBtn = card.querySelector('.copy-card-btn');
+            copyBtn.addEventListener('click', (e) => {
+                e.stopPropagation(); // Stop click from triggering parent card selection
+                const shareText = `${note.title}\n\n${note.plain_text}\n\nRead more: ${note.link}`;
+                navigator.clipboard.writeText(shareText).then(() => {
+                    const btnSpan = copyBtn.querySelector('span');
+                    btnSpan.textContent = 'Copied!';
+                    copyBtn.classList.remove('btn-secondary');
+                    copyBtn.classList.add('btn-primary');
+                    setTimeout(() => {
+                        btnSpan.textContent = 'Copy';
+                        copyBtn.classList.add('btn-secondary');
+                        copyBtn.classList.remove('btn-primary');
+                    }, 2000);
+                }).catch(err => {
+                    console.error('Failed to copy text: ', err);
+                });
             });
 
             notesContainer.appendChild(card);
@@ -204,6 +235,47 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Search Input Event
     searchInput.addEventListener('input', renderNotes);
+
+    // Export to CSV Button Event
+    exportBtn.addEventListener('click', () => {
+        const filtered = getFilteredNotes();
+        if (filtered.length === 0) {
+            alert('No release notes available to export.');
+            return;
+        }
+
+        // CSV Header
+        let csvContent = '"ID","Title","Category","Date","Plain Text","Link"\n';
+
+        filtered.forEach(note => {
+            const escapeCsv = (str) => {
+                if (!str) return '""';
+                return '"' + str.replace(/"/g, '""').replace(/\r?\n|\r/g, ' ') + '"';
+            };
+
+            const row = [
+                escapeCsv(note.id),
+                escapeCsv(note.title),
+                escapeCsv(note.category),
+                escapeCsv(formatDate(note.published)),
+                escapeCsv(note.plain_text),
+                escapeCsv(note.link)
+            ].join(',');
+            csvContent += row + '\n';
+        });
+
+        // Trigger client-side file download via Blob
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        link.setAttribute("download", `bigquery_release_notes_${currentCategory}_${new Date().toISOString().slice(0, 10)}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    });
 
     // Tabs filter event
     filterTabs.forEach(tab => {
